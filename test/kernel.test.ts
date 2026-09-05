@@ -99,3 +99,14 @@ test('reentrant calls during validation are rejected', () => {
   assert.equal(session.dispatch({ amount: 1 }, 0).ok, true);
   assert.equal(session.view().count, 1);
 });
+
+
+test('a sparse array cannot hide its hole with an unrelated enumerable property', () => {
+  const array = Array(1);
+  Object.defineProperty(array, 'extra', { value: 7, enumerable: true });
+  const identity: GameDefinition<unknown, unknown, unknown> = {
+    ruleset: 'identity/1', parseState: s => s, parseCommand: c => c,
+    decide: state => ({ ok: true, state, facts: [] }),
+  };
+  assert.throws(() => createSession(identity, 'one', array));
+});

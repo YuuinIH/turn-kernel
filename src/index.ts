@@ -46,6 +46,8 @@ function checkJson(value: unknown, parents = new Set<object>()): void {
   for (const key of Reflect.ownKeys(value)) {
     if (array && key === 'length') continue;
     if (typeof key !== 'string') throw Error('Symbol key');
+    if (array && (!Number.isInteger(Number(key)) || Number(key) < 0 ||
+      Number(key) >= value.length || String(Number(key)) !== key)) throw Error('Non-index array property');
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) throw Error('Accessor or hidden property');
     checkJson(descriptor.value, parents);
