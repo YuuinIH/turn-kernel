@@ -1,0 +1,3 @@
+# Initial experiment
+
+Generic synchronous execution host, independent of game entities. Validate unknown commands and restored state; scope requests by session and monotonic revision; reject duplicates/stale requests; isolate rule execution from authoritative state; validate and detach candidate state and facts before atomic commit. Reject exceptions without mutation. Snapshot includes ruleset/version, session and revision. Validate serializable JSON, including finite numbers. Test at the public create/submit/view/snapshot/restore interfaces. Include a small pet/mark type-safety fixture. No claim of sandboxing malicious TS, crash durability, concurrent storage or arbitrary interruption recovery.
