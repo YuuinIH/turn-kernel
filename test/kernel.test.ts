@@ -82,7 +82,7 @@ test('non-JSON state is rejected including accessors, dates, sparse arrays and s
   Object.defineProperty(symbolArray, Symbol('hidden'), { value: 2 });
   const accessorArray = [1];
   Object.defineProperty(accessorArray, '0', { get: () => 1, enumerable: true });
-  for (const state of [new Date(), [undefined], Array(2), symbolArray, accessorArray, { get count() { return 1; } }]) {
+  for (const state of [new Date(), -0, [undefined], Array(2), symbolArray, accessorArray, { get count() { return 1; } }]) {
     assert.throws(() => createSession(identity, 'one', state));
   }
 });
