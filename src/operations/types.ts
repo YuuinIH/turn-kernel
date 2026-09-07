@@ -1,6 +1,13 @@
-import type { Parser } from '../validation/parse.js';
-export interface OperationRequest { operation: string; version: string; input: unknown }
-export interface OperationOutcome<S, F> { state: S; facts: readonly F[] }
+import type { Parser } from "../validation/parse.js";
+export interface OperationRequest {
+  operation: string;
+  version: string;
+  input: unknown;
+}
+export interface OperationOutcome<S, F> {
+  state: S;
+  facts: readonly F[];
+}
 export interface Operation<S, F> {
   readonly id: string;
   readonly version: string;

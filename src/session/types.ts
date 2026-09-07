@@ -20,7 +20,17 @@ export interface Snapshot<S> {
 
 export type Submission<F> =
   | { ok: true; revision: number; facts: readonly F[] }
-  | { ok: false; code: 'invalid-input' | 'wrong-session' | 'stale-revision' | 'rejected' | 'rule-failure' | 'busy'; reason: string };
+  | {
+      ok: false;
+      code:
+        | "invalid-input"
+        | "wrong-session"
+        | "stale-revision"
+        | "rejected"
+        | "rule-failure"
+        | "busy";
+      reason: string;
+    };
 
 export interface Session<S, C, F> {
   view(): S;
@@ -28,4 +38,3 @@ export interface Session<S, C, F> {
   dispatch(command: C, revision: number): Submission<F>;
   submit(input: unknown): Submission<F>;
 }
-
