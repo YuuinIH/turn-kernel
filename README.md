@@ -11,7 +11,7 @@ npm ci
 npm run check
 ```
 
-检查包括严格类型检查、编译期非法组合反例及行为测试。安装 `redis-server` 和 `redis-cli` 后自动执行真实 Redis 合约测试；`REQUIRE_REDIS=1 npm run check` 禁止跳过该测试，CI 使用此模式。内核没有第三方运行时依赖，Redis 客户端由宿主注入。
+检查包括严格类型检查、编译期非法组合反例及行为测试。安装 `redis-server` 和 `redis-cli` 后自动执行真实 Redis 合约测试；`REQUIRE_REDIS=1 npm run check` 禁止跳过该测试，CI 使用此模式。Zod 是内核的正式运行时依赖，由内核统一导出；上层游戏无需单独安装。Redis 客户端由宿主注入。
 
 ## 模块边界
 
@@ -27,6 +27,32 @@ npm run check
 | `validation` | 外部 unknown 输入及有限、无环、普通 JSON 数据边界                                  |
 
 最小游戏仍实现 `GameDefinition<State, Command, Fact>` 的 `parseState`、`parseCommand`、`decide`。`createSession` / `restoreSession` 提供 `submit`、类型化 `dispatch`、独立副本 `view` 和 `snapshot`。每次成功提交版本加一，拒绝或异常保留旧状态。`decide` 和操作实现属于可信引擎代码；内容作者通过受限行为接口提出请求。
+
+## 自定义对象与校验
+
+从引擎导入 `z` 和 `defineObject`，直接提交 schema。字段类型由同一 schema 推导；创建、读取和恢复时仍经过引擎的 JSON 边界与运行时校验。
+
+```ts
+import {
+  z,
+  defineObject,
+  registration,
+  RulesetBuilder,
+  worldParser,
+} from "@yuuinih/turn-kernel";
+
+const barrierSchema = z.strictObject({
+  durability: z.number().int().nonnegative(),
+  element: z.enum(["fire", "ice"]),
+});
+type Barrier = z.infer<typeof barrierSchema>;
+const barrier = defineObject("my-game:barrier", "1", barrierSchema);
+const token = registration("object", barrier.kind, barrier.version, barrier);
+const rules = new RulesetBuilder().add(token).build("my-game", "1");
+const parseWorld = worldParser([rules.resolve(token)], []);
+```
+
+游戏声明领域字段和约束；引擎维护校验库依赖及其公开入口。现有 `(unknown) => T` 解析函数写法继续兼容。`z` 也可用于命令、流程局部变量和内容参数校验。schema 本身属于可信定义，不能存入对局快照；定义中的解析结果仍必须是普通 JSON。对象仍需接入规则集与世界校验器，当前没有自动模块发现。
 
 ## 自定义内容如何注册
 

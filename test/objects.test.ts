@@ -6,17 +6,19 @@ import {
   WorldEditor,
   WorldQuery,
   worldParser,
-  parse,
+  z,
   type World,
 } from "../src/index.js";
-const pet = defineObject("pet", "1", (input) => {
-  const v = parse.object(input, ["hp"]);
-  return { hp: parse.integer(v.hp, 0, 10) };
-});
-const mark = defineObject("mark", "1", (input) => {
-  const v = parse.object(input, ["stacks"]);
-  return { stacks: parse.integer(v.stacks, 1, 9) };
-});
+const pet = defineObject(
+  "pet",
+  "1",
+  z.strictObject({ hp: z.number().int().min(0).max(10) }),
+);
+const mark = defineObject(
+  "mark",
+  "1",
+  z.strictObject({ stacks: z.number().int().min(1).max(9) }),
+);
 const attached = defineRelation({
   id: "attached",
   version: "1",

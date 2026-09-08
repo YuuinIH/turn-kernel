@@ -1,3 +1,4 @@
+import type { ZodType } from "../validation/schema.js";
 import { detached } from "../validation/json.js";
 import { object, text, type Parser } from "../validation/parse.js";
 export interface Ref<K extends string = string> {
@@ -23,10 +24,15 @@ export function parseRef(input: unknown): Ref {
 export function defineObject<const K extends string, T>(
   kind: K,
   version: string,
-  parse: Parser<T>,
+  schema: ZodType<T> | Parser<T>,
 ): ObjectType<K, T> {
   text(kind);
   text(version);
+  // Capture parsing behavior, keeping schema instances outside frozen registries.
+  const parse =
+    typeof schema === "function"
+      ? schema
+      : (input: unknown) => schema.parse(input);
   return Object.freeze({
     kind,
     version,
