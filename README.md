@@ -108,6 +108,8 @@ const result = runtime.execute(0, bonus.plan(rules, 0)); // state: 3
 
 ## 流程与值
 
+流程以 **Flow / Frame / Operation** 分工：Frame.data 保存局部进度，不另建 Context；普通命令直接执行操作，只有需要等待或恢复的过程才使用 Flow。详见 [执行模型与 0.3 迁移](docs/flow-execution.md)。
+
 `FlowRuntime.start(start, instanceId)` 要求宿主分配不会复用的执行 ID，并把分配计数保存在对局状态里。帧和选择标识包含该命名空间；恢复检查帧类型、版本、步骤和计数，提交选择检查 prompt、行动者及游戏定义的合法性。调用 `run` 得到 `fault` 时，游戏适配层应拒绝此次提交；精灵示例展示此处理。只能恢复显式检查点，不能恢复任意 TS 调用栈。
 
 对象字段由游戏 schema 管理；字段不必全部变成数值表达式。需要派生、追踪或修正的字段注册为 value。数值修正先加后乘，再执行领域归一化。来源消失或流程结束时，游戏适配层清理失效修正。当前依赖通过 `observe` / `read` 显式记录，每次求值重新计算；没有自动字段探测或增量缓存，也没有恢复旧 config-value DSL。

@@ -1,10 +1,11 @@
 import type { OperationRequest } from "../operations/types.js";
-export interface Frame {
+/** One execution frame owns its serializable local data. */
+export interface Frame<T = unknown> {
   id: string;
   type: string;
   version: string;
   step: string;
-  locals: unknown;
+  data: T;
   childResult: unknown;
 }
 export interface Prompt {
@@ -13,6 +14,7 @@ export interface Prompt {
   frameId: string;
 }
 export interface FlowState {
+  format: 1;
   instanceId: string;
   sequence: number;
   stack: Frame[];
@@ -30,13 +32,13 @@ export interface StartFlow {
   type: string;
   version: string;
   step: string;
-  locals: unknown;
+  data?: unknown;
 }
 export type Transition =
   | {
       kind: "next";
       step: string;
-      locals: unknown;
+      data: unknown;
       operations: readonly OperationRequest[];
     }
   | { kind: "wait"; actor: string; operations: readonly OperationRequest[] }
@@ -44,12 +46,13 @@ export type Transition =
       kind: "call";
       child: StartFlow;
       resumeStep: string;
-      locals: unknown;
+      data: unknown;
       operations: readonly OperationRequest[];
     }
   | { kind: "done"; result: unknown; operations: readonly OperationRequest[] };
 export interface FlowStep<S> {
-  parseLocals(input: unknown): unknown;
+  /** Omit only for steps whose data is null. */
+  parseData?: (input: unknown) => unknown;
   parseChoice?: (input: unknown, state: S, frame: Frame) => unknown;
   advance(state: S, frame: Frame, choice: unknown): Transition;
 }

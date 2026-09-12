@@ -28,18 +28,32 @@ export class FlowRuntime<S, F> {
       throw Error("Unknown flow/version/step");
     return step;
   }
-  start(start: StartFlow, instanceId: string): FlowState {
-    text(instanceId);
-    const frame = {
-      ...detached(start),
-      id: identity(instanceId, "frame", 0),
+  #data(frame: Frame): unknown {
+    const parser = this.#step(frame).parseData;
+    if (parser) return detached(parser(detached(frame.data)));
+    if (frame.data !== null)
+      throw Error("Step without a data parser requires null data");
+    return null;
+  }
+  #frame(start: StartFlow, instanceId: string, sequence: number): Frame {
+    const frame: Frame = {
+      id: identity(instanceId, "frame", sequence),
+      type: text(start.type),
+      version: text(start.version),
+      step: text(start.step),
+      data: start.data === undefined ? null : detached(start.data),
       childResult: null,
     };
-    frame.locals = detached(this.#step(frame).parseLocals(frame.locals));
+    frame.data = this.#data(frame);
+    return frame;
+  }
+  start(start: StartFlow, instanceId: string): FlowState {
+    text(instanceId);
     return {
+      format: 1,
       instanceId,
       sequence: 1,
-      stack: [frame],
+      stack: [this.#frame(start, instanceId, 0)],
       status: "running",
       prompt: null,
       result: null,
@@ -48,6 +62,7 @@ export class FlowRuntime<S, F> {
   }
   parse(input: unknown): FlowState {
     const v = object(input, [
+      "format",
       "instanceId",
       "sequence",
       "stack",
@@ -56,6 +71,10 @@ export class FlowRuntime<S, F> {
       "result",
       "error",
     ]);
+    if (v.format !== 1)
+      throw Error(
+        "Unsupported flow checkpoint format; explicit migration required",
+      );
     const sequence = integer(v.sequence, 1);
     const instanceId = text(v.instanceId);
     const stack = list(v.stack, (input) => {
@@ -64,7 +83,7 @@ export class FlowRuntime<S, F> {
         "type",
         "version",
         "step",
-        "locals",
+        "data",
         "childResult",
       ]);
       const frame: Frame = {
@@ -72,10 +91,10 @@ export class FlowRuntime<S, F> {
         type: text(f.type),
         version: text(f.version),
         step: text(f.step),
-        locals: f.locals,
+        data: f.data,
         childResult: detached(f.childResult),
       };
-      frame.locals = detached(this.#step(frame).parseLocals(frame.locals));
+      frame.data = this.#data(frame);
       return frame;
     });
     for (const frame of stack)
@@ -111,6 +130,7 @@ export class FlowRuntime<S, F> {
     if (status === "fault" ? typeof v.error !== "string" : v.error !== null)
       throw Error("Invalid fault record");
     return detached({
+      format: 1,
       instanceId,
       sequence,
       stack,
@@ -155,7 +175,7 @@ export class FlowRuntime<S, F> {
       for (let n = 0; n < budget; n += 1) {
         const frame = flow.stack.at(-1) ?? fail();
         const step = this.#step(frame);
-        frame.locals = detached(step.parseLocals(frame.locals));
+        frame.data = this.#data(frame);
         const transition = step.advance(
           detached(state),
           detached(frame),
@@ -172,7 +192,7 @@ export class FlowRuntime<S, F> {
         switch (transition.kind) {
           case "next":
             frame.step = transition.step;
-            frame.locals = detached(transition.locals);
+            frame.data = detached(transition.data);
             frame.childResult = null;
             break;
           case "wait": {
@@ -188,13 +208,11 @@ export class FlowRuntime<S, F> {
           }
           case "call":
             frame.step = transition.resumeStep;
-            frame.locals = detached(transition.locals);
+            frame.data = detached(transition.data);
             frame.childResult = null;
-            flow.stack.push({
-              ...detached(transition.child),
-              id: identity(flow.instanceId, "frame", flow.sequence++),
-              childResult: null,
-            });
+            flow.stack.push(
+              this.#frame(transition.child, flow.instanceId, flow.sequence++),
+            );
             break;
           case "done":
             flow.stack.pop();

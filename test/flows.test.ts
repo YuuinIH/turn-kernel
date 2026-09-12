@@ -37,7 +37,7 @@ const child: FlowDefinition<State> = {
   version: "1",
   steps: {
     choose: {
-      parseLocals: parse.integer,
+      parseData: parse.integer,
       parseChoice: (v) => parse.integer(v),
       advance: (_s, frame, input) =>
         input === undefined
@@ -46,9 +46,7 @@ const child: FlowDefinition<State> = {
               kind: "done",
               result: input,
               operations: [
-                tick.request(
-                  parse.integer(frame.locals) + parse.integer(input),
-                ),
+                tick.request(parse.integer(frame.data) + parse.integer(input)),
               ],
             },
     },
@@ -59,22 +57,22 @@ const parent: FlowDefinition<State> = {
   version: "1",
   steps: {
     start: {
-      parseLocals: parse.integer,
+      parseData: parse.integer,
       advance: (_s, f) => ({
         kind: "call",
         child: {
           type: "child",
           version: "1",
           step: "choose",
-          locals: f.locals,
+          data: f.data,
         },
         resumeStep: "end",
-        locals: null,
+        data: null,
         operations: [tick.request(1)],
       }),
     },
     end: {
-      parseLocals: (v) => {
+      parseData: (v) => {
         if (v !== null) throw Error();
         return null;
       },
@@ -97,7 +95,7 @@ test("parent/child flow saves waiting state, validates chooser and returns deter
   const initial = {
     state: { count: 0, rng: 123 },
     flow: engine.start(
-      { type: "parent", version: "1", step: "start", locals: 3 },
+      { type: "parent", version: "1", step: "start", data: 3 },
       "execution-1",
     ),
   };
@@ -134,11 +132,11 @@ test("budget exhaustion records fault and rolls back candidate random/state chan
     version: "1",
     steps: {
       run: {
-        parseLocals: parse.integer,
+        parseData: parse.integer,
         advance: (_s, f) => ({
           kind: "next",
           step: "run",
-          locals: f.locals,
+          data: f.data,
           operations: [tick.request(1)],
         }),
       },
@@ -151,7 +149,7 @@ test("budget exhaustion records fault and rolls back candidate random/state chan
   const initial = {
     state: { count: 0, rng: 1 },
     flow: engine.start(
-      { type: "loop", version: "1", step: "run", locals: 0 },
+      { type: "loop", version: "1", step: "run", data: 0 },
       "execution-1",
     ),
   };
@@ -168,7 +166,7 @@ test("a choice from one root execution cannot complete a later root execution", 
     engine.run({
       state: { count: 0, rng: 1 },
       flow: engine.start(
-        { type: "child", version: "1", step: "choose", locals: 1 },
+        { type: "child", version: "1", step: "choose", data: 1 },
         id,
       ),
     });
@@ -188,4 +186,88 @@ test("a choice from one root execution cannot complete a later root execution", 
   const invalid = structuredClone(second.flow);
   invalid.sequence = 1;
   assert.throws(() => engine.parse(invalid), /identity/);
+});
+
+test("stateless root and child frames default to null without a context object", () => {
+  const leaf: FlowDefinition<State> = {
+    id: "leaf",
+    version: "1",
+    steps: {
+      run: {
+        advance: (_state, frame) => {
+          assert.equal(frame.data, null);
+          return { kind: "done", result: 7, operations: [] };
+        },
+      },
+    },
+  };
+  const root: FlowDefinition<State> = {
+    id: "root",
+    version: "1",
+    steps: {
+      run: {
+        advance: () => ({
+          kind: "call",
+          child: { type: "leaf", version: "1", step: "run" },
+          resumeStep: "end",
+          data: null,
+          operations: [],
+        }),
+      },
+      end: {
+        advance: (_state, frame) => ({
+          kind: "done",
+          result: frame.childResult,
+          operations: [],
+        }),
+      },
+    },
+  };
+  const engine = new FlowRuntime(
+    [root, leaf],
+    new OperationRuntime(parseState, []),
+  );
+  const flow = engine.start(
+    { type: "root", version: "1", step: "run" },
+    "empty-data",
+  );
+  assert.equal(flow.stack[0]?.data, null);
+  const result = engine.run({ state: { count: 0, rng: 1 }, flow });
+  assert.equal(result.flow.result, 7);
+  assert.equal(result.flow.status, "finished");
+  assert.throws(
+    () =>
+      engine.start(
+        { type: "root", version: "1", step: "run", data: {} },
+        "invalid",
+      ),
+    /null data/,
+  );
+});
+
+test("frame data is the only local checkpoint and legacy or invalid checkpoints are rejected", () => {
+  const engine = runtime();
+  const started = {
+    state: { count: 0, rng: 1 },
+    flow: engine.start(
+      { type: "parent", version: "1", step: "start", data: 3 },
+      "persisted",
+    ),
+  };
+  const waiting = engine.run(started);
+  assert.deepEqual(
+    waiting.flow.stack.map((frame) => frame.data),
+    [null, 3],
+  );
+  assert.equal(started.flow.stack[0]?.data, 3);
+  const checkpoint: unknown = JSON.parse(JSON.stringify(waiting.flow));
+  assert.deepEqual(engine.parse(checkpoint), waiting.flow);
+  assert.throws(() => engine.parse({ ...waiting.flow, format: 99 }), /format/);
+  const { format: _format, ...legacy } = waiting.flow;
+  assert.throws(() => engine.parse(legacy), /format/);
+  const invalid = structuredClone(waiting.flow);
+  const frame = invalid.stack.at(-1);
+  assert.ok(frame);
+  frame.data = "not-a-number";
+  assert.throws(() => engine.parse(invalid));
 });
