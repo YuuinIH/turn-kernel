@@ -11,7 +11,6 @@ import {
   WorldEditor,
   authorizeComponentWrite,
   detached,
-  defineNumericValue,
   Evaluation,
   validateModifiers,
   activeModifiers,
@@ -190,11 +189,10 @@ test("component definitions are registered once and conflicting assembly fails b
   );
   assert.throws(() => worldParser([unit, wrong], []), /Conflicting/);
 });
-const effective = defineNumericValue<World, "unit">(
+const effective = unitHealth.numericValue<World>(
   "effective",
   "1",
-  "unit",
-  (q, ref) => q.component(unitHealth, ref, (world) => world).hp,
+  (_q, _ref, health) => health.hp,
 );
 test("derived component reads track dependencies, recalculate after writes, and validate modifier endpoints and scopes", () => {
   const world = fixture();
@@ -207,8 +205,8 @@ test("derived component reads track dependencies, recalculate after writes, and 
     lifetime: { kind: "flow", flowId: "turn" },
   });
   const refs = world.entities.map((e) => e.ref);
-  const mods = validateModifiers([boost], [effective], refs, ["turn"]);
-  const first = new Evaluation(world, [effective], mods);
+  const mods = validateModifiers([boost], [effective], world, ["turn"]);
+  const first = new Evaluation(world, (state) => state, [effective], mods);
   assert.equal(first.read(effective, u), 7);
   assert.ok(
     first
@@ -222,32 +220,51 @@ test("derived component reads track dependencies, recalculate after writes, and 
     max: 10,
   });
   assert.equal(first.read(effective, u), 7);
-  assert.equal(new Evaluation(world, [effective], mods).read(effective, u), 10);
+  assert.equal(
+    new Evaluation(world, (state) => state, [effective], mods).read(
+      effective,
+      u,
+    ),
+    10,
+  );
   assert.throws(
-    () => validateModifiers([boost], [effective], refs, []),
+    () => validateModifiers([boost], [effective], world, []),
     /Expired/,
   );
   assert.throws(
-    () => validateModifiers([boost], [effective], [u, t], ["turn"]),
+    () =>
+      validateModifiers(
+        [boost],
+        [effective],
+        {
+          ...world,
+          entities: world.entities.filter((e) => e.ref.kind !== "mark"),
+        },
+        ["turn"],
+      ),
     /endpoint/,
   );
   assert.throws(
     () =>
-      validateModifiers([{ ...boost, target: t }], [effective], refs, ["turn"]),
-    /mismatch/,
+      validateModifiers([{ ...boost, target: t }], [effective], world, [
+        "turn",
+      ]),
+    /component/,
   );
   assert.throws(() =>
-    validateModifiers([{ ...boost, amount: Infinity }], [effective], refs, [
+    validateModifiers([{ ...boost, amount: Infinity }], [effective], world, [
       "turn",
     ]),
   );
   assert.throws(
-    () => validateModifiers([boost, boost], [effective], refs, ["turn"]),
+    () => validateModifiers([boost, boost], [effective], world, ["turn"]),
     /Duplicate/,
   );
   assert.deepEqual(activeModifiers(mods, refs, []), []);
 });
 const typeChecks = () => {
+  // @ts-expect-error A mark cannot be a target of a health-derived value.
+  new Evaluation(fixture(), (state) => state, [effective]).read(effective, m);
   // @ts-expect-error Marks are outside the declared component target kind union.
   new WorldQuery(fixture()).component(living, m);
   new WorldEditor(fixture(), policy, []).setComponent(living, u, {
@@ -344,5 +361,99 @@ test("component state rejects implicit normalization instead of changing repeate
       ref,
     ),
     2,
+  );
+});
+
+test("derived values are component-owned across object kinds and validate even constant computations", () => {
+  const maximum = living.numericValue<World>(
+    "maximum",
+    "1",
+    (_q, _ref, data) => data.max,
+  );
+  const constant = living.numericValue<World>("constant", "1", () => 42);
+  const world = fixture();
+  const query = new Evaluation(world, (state) => state, [maximum, constant]);
+  assert.equal(query.read(maximum, u), 10);
+  assert.equal(query.read(maximum, t), 20);
+  assert.throws(
+    () => query.read(constant, tower.ref("one", "missing")),
+    /stale/,
+  );
+  assert.throws(() => query.read(constant, tower.ref("other", "t")), /stale/);
+  const invalid = detached(world);
+  const entity = invalid.entities.find((e) => e.ref.id === "t");
+  assert.ok(entity);
+  entity.value = { name: "tower" };
+  assert.throws(() =>
+    new Evaluation(invalid, (state) => state, [constant]).read(constant, t),
+  );
+  const modifier = maximum.modifier({
+    id: "max",
+    target: t,
+    source: m,
+    amount: 1,
+    mode: "add",
+    lifetime: { kind: "source" },
+  });
+  assert.throws(() => validateModifiers([modifier], [maximum], invalid, []));
+  assert.equal(
+    new Evaluation(world, (state) => state, [maximum], [modifier]).read(
+      maximum,
+      t,
+    ),
+    21,
+  );
+});
+
+test("same local value names are separated by component and registration requires the exact owner", () => {
+  const a = living.numericValue<World>(
+    "maximum",
+    "1",
+    (_q, _ref, data) => data.max,
+  );
+  const label = defineComponent("label", "1", z.string());
+  const labeled = defineObject(
+    "labeled",
+    "1",
+    z.strictObject({ label: label.schema() }),
+    [label.slot("label")],
+  );
+  const b = componentTarget(label, labeled).numericValue<World>(
+    "maximum",
+    "1",
+    () => 1,
+  );
+  assert.notEqual(a.id, b.id);
+  const token = registration("value", a.id, a.version, a);
+  assert.deepEqual(token.requires, ["component:health"]);
+  assert.throws(
+    () => new RulesetBuilder().add(token).build("missing", "1"),
+    /Missing/,
+  );
+  assert.throws(
+    () => registration("value", "bare", "1", { evaluate: () => 1 }),
+    /component/,
+  );
+  const impostor = defineComponent("health", "1", z.number());
+  assert.throws(
+    () =>
+      new RulesetBuilder()
+        .add(token)
+        .add(registration("component", "health", "1", impostor))
+        .build("wrong", "1"),
+    /exact/,
+  );
+  const rules = new RulesetBuilder()
+    .add(token)
+    .add(registration("component", health.id, health.version, health))
+    .build("ok", "1");
+  assert.equal(rules.resolve(token), a);
+  assert.throws(
+    () =>
+      new Evaluation(fixture(), (state) => state, [
+        a,
+        living.numericValue<World>("maximum", "2", () => 1),
+      ]),
+    /Duplicate/,
   );
 });

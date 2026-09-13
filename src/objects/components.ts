@@ -1,3 +1,10 @@
+import {
+  defineValue,
+  defineNumericValue,
+  type Evaluation,
+  type ValueDefinition,
+  type NumericValueDefinition,
+} from "../values/evaluation.js";
 import { isDeepStrictEqual } from "node:util";
 import { z, type ZodType } from "../validation/schema.js";
 import { detached } from "../validation/json.js";
@@ -55,6 +62,18 @@ export function componentField(value: unknown, key: string): unknown {
 }
 export interface ComponentTarget<K extends string, T> {
   readonly component: ComponentDefinition<T>;
+  value<S, R>(
+    name: string,
+    version: string,
+    parse: Parser<R>,
+    compute: (query: Evaluation<S>, ref: Ref<K>, component: T) => R,
+  ): ValueDefinition<S, K, R>;
+  numericValue<S>(
+    name: string,
+    version: string,
+    compute: (query: Evaluation<S>, ref: Ref<K>, component: T) => number,
+    constrain?: (value: number) => number,
+  ): NumericValueDefinition<S, K>;
   readonly kinds: readonly K[];
   parseRef(input: unknown): Ref<K>;
   read(ref: Ref<NoInfer<K>>, value: unknown): T;
@@ -83,8 +102,12 @@ export function componentTarget<K extends string, T>(
     found.type.parseRef(ref);
     return found;
   }
-  return Object.freeze({
+  const target: ComponentTarget<K, T> = {
     component,
+    value: (name, version, parse, compute) =>
+      defineValue(target, name, version, parse, compute),
+    numericValue: (name, version, compute, constrain) =>
+      defineNumericValue(target, name, version, compute, constrain),
     kinds: Object.freeze(types.map((t) => t.kind)),
     parseRef(input: unknown): Ref<K> {
       const ref = parseRef(input);
@@ -102,5 +125,6 @@ export function componentTarget<K extends string, T>(
         throw Error("Invalid component object");
       return type.parse({ ...parsed, [slot.key]: component.parse(next) });
     },
-  });
+  };
+  return Object.freeze(target);
 }

@@ -1,4 +1,4 @@
-# 组件、关系、派生值与 modifier（v0.4）
+# 组件、关系、派生值与 modifier（v0.5）
 
 本轮目标：给回合制游戏提供可复用的数据能力，让精灵和防御塔共用生命组件及治疗操作；印记不具备生命能力。组件组合在对象定义时固定，不引入完整 ECS、动态组件增删、调度器或新的配置语言。不兼容旧示例快照。
 
@@ -41,9 +41,34 @@ const healable = componentTarget(health, pet);
 
 ## 派生值与 modifier
 
-`Evaluation.component(target, ref, state => state.world)` 从组件读取，并以组件 ID 和完整会话引用记录依赖；`read(otherValue, ref)` 记录派生值依赖并检测递归环。每个 Evaluation 捕获一个独立快照；新候选创建新的求值器。当前全部重新求值，没有增量缓存；依赖粒度是组件，未细化到组件字段。派生值仍绑定一个对象类别，计算代码可复用同一组件；没有引入跨类别的派生值注册协议。
+派生值不允许独立挂在对象类别上。先声明组件目标，再在其下声明局部派生值：
 
-`defineNumericValue(...).modifier(...)` 根据数值定义生成带目标类型检查的修正，调用者不再手写 valueId。`validateModifiers(input, definitions, liveRefs, activeFlows)` 在恢复和候选提交时统一拒绝重复 ID、非数值定义、错误目标类别、非法数值、失效来源/目标及已结束流程。它验证已声明的存活集合；宿主必须由已校验的 World 和 Flow 提供集合。
+```ts
+const petCombat = componentTarget(combat, pet);
+const attack = petCombat.numericValue<Battle>(
+  "attack",
+  "1",
+  (_query, _ref, data) => data.attack,
+  (value) => Math.max(0, Math.floor(value)),
+);
+const query = new Evaluation(
+  battle,
+  (state) => state.world,
+  [attack],
+  battle.modifiers,
+);
+const result = query.read(attack, pet.ref(battle.world.sessionId, "attacker"));
+```
+
+计算函数第三个参数是经过校验的所属组件数据。即使函数返回常量，读取仍检查当前目标及组件；派生值可以用 `query.read(other, ref)` 依赖其他已注册派生值。普通非数值派生值用 `target.value<State, Result>(name, version, parse, compute)`。它们仍是只读计算结果，不进入组件的存储 schema。
+
+派生值标识编码为组件 ID 与局部名称的 JSON 二元组，不会因分隔符或跨组件同名而碰撞。同一组件同名的多个声明在同一求值器内被拒绝。声明归属于组件定义；组件目标的对象列表限定适用范围，不自动从世界发现全部对象类别。支持多个类别时用同一个 `componentTarget(combat, pet, otherType)` 声明。
+
+`registration("value", definition.id, definition.version, definition)` 自动添加所属组件依赖；规则集构建要求注册的是同一个组件定义和版本，不能遗漏或替换成同名组件。旧的按类别独立声明接口和裸 valueId 不兼容。
+
+`Evaluation.component(target, ref)` 从组件读取，并以组件 ID 和完整会话引用记录依赖；`read(otherValue, ref)` 记录派生值依赖并检测递归环。每个 Evaluation 捕获一个独立快照；新候选创建新的求值器。当前全部重新求值，没有增量缓存；依赖粒度是组件，未细化到组件字段。派生值必须归属于组件，通过组件目标声明；同一声明可适用于该目标包含的多个对象类别。
+
+`componentTarget(...).numericValue(...).modifier(...)` 根据数值定义生成带目标类型检查的修正，调用者不再手写 valueId。`validateModifiers(input, definitions, world, activeFlows)` 在恢复和候选提交时统一拒绝重复 ID、非数值定义、不具备所属组件的目标、非法数值、失效来源/目标及已结束流程。它从 World 验证目标组件和来源存活；宿主必须由已校验的 Flow 提供活动流程集合。
 
 修正规则保持明确：按 ID 稳定排序，先相加、再相乘，最后由派生值定义钳制/取整。来源型修正随来源失效；流程型修正同时要求来源、目标、流程存活。清理由操作显式调用 `activeModifiers`，恢复时拒绝失效数据，不静默丢弃。没有 modifier 自带的脚本或另一套表达式语言。
 

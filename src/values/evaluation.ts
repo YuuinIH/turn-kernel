@@ -1,3 +1,4 @@
+import { ownValue } from "./ownership.js";
 import type { ComponentTarget } from "../objects/components.js";
 import { WorldQuery, type World } from "../objects/world.js";
 import { detached } from "../validation/json.js";
@@ -10,26 +11,38 @@ import {
 } from "./modifiers.js";
 export interface ValueDefinition<S, K extends string, T> {
   readonly id: string;
+  readonly name: string;
+  readonly kinds: readonly K[];
   readonly version: string;
-  readonly kind: K;
+  readonly component: { readonly id: string; readonly version: string };
   readonly numeric: boolean;
+  validateTarget(world: World, ref: Ref): void;
   evaluate(query: Evaluation<S>, ref: Ref<NoInfer<K>>): T;
 }
-export function defineValue<S, const K extends string, T>(
-  id: string,
+export function defineValue<S, K extends string, C, T>(
+  target: ComponentTarget<K, C>,
+  name: string,
   version: string,
-  kind: K,
   parse: Parser<T>,
-  compute: (query: Evaluation<S>, ref: Ref<K>) => T,
+  compute: (query: Evaluation<S>, ref: Ref<K>, component: C) => T,
 ): ValueDefinition<S, K, T> {
-  return Object.freeze({
-    id: text(id),
-    version: text(version),
-    kind,
-    numeric: false,
-    evaluate: (query: Evaluation<S>, ref: Ref<K>) =>
-      detached(parse(compute(query, ref))),
-  });
+  return ownValue(
+    Object.freeze({
+      id: JSON.stringify([target.component.id, text(name)]),
+      name,
+      kinds: target.kinds,
+      version: text(version),
+      component: target.component,
+      numeric: false,
+      validateTarget(world: World, ref: Ref): void {
+        new WorldQuery(world).component(target, target.parseRef(ref));
+      },
+      evaluate(query: Evaluation<S>, ref: Ref<K>): T {
+        const data = query.component(target, ref);
+        return detached(parse(compute(query, ref, data)));
+      },
+    }),
+  );
 }
 export interface NumericValueDefinition<
   S,
@@ -42,47 +55,51 @@ export interface NumericValueDefinition<
     },
   ): NumericModifier;
 }
-export function defineNumericValue<S, const K extends string>(
-  id: string,
+export function defineNumericValue<S, K extends string, C>(
+  target: ComponentTarget<K, C>,
+  name: string,
   version: string,
-  kind: K,
-  compute: (query: Evaluation<S>, ref: Ref<K>) => number,
+  compute: (query: Evaluation<S>, ref: Ref<K>, component: C) => number,
   constrain: (value: number) => number = finite,
 ): NumericValueDefinition<S, K> {
-  return Object.freeze({
-    id: text(id),
-    version: text(version),
-    kind,
-    numeric: true,
-    modifier(
-      input: Omit<NumericModifier, "target" | "valueId"> & {
-        target: Ref<NoInfer<K>>;
+  const definition = defineValue(target, name, version, finite, compute);
+  return ownValue(
+    Object.freeze({
+      ...definition,
+      numeric: true,
+      modifier(
+        input: Omit<NumericModifier, "target" | "valueId"> & {
+          target: Ref<NoInfer<K>>;
+        },
+      ): NumericModifier {
+        target.parseRef(input.target);
+        return parseModifier({ ...input, valueId: definition.id });
       },
-    ): NumericModifier {
-      if (parseRef(input.target).kind !== kind)
-        throw Error("Modifier target/value mismatch");
-      return parseModifier({ ...input, valueId: id });
-    },
-    evaluate(query: Evaluation<S>, ref: Ref<K>): number {
-      const base = finite(compute(query, ref));
-      const modifiers = query.modifiers(id, ref);
-      return finite(constrain(combineNumeric(base, modifiers)));
-    },
-  });
+      evaluate(query: Evaluation<S>, ref: Ref<K>): number {
+        const base = definition.evaluate(query, ref);
+        return finite(
+          constrain(combineNumeric(base, query.modifiers(definition.id, ref))),
+        );
+      },
+    }),
+  );
 }
 /** One evaluator per immutable candidate view. No cross-commit cache survives. */
 export class Evaluation<S> {
   #state: S;
+  #world: World;
   #modifiers: readonly NumericModifier[];
   #definitions: ReadonlySet<unknown>;
   #stack: string[] = [];
   #edges = new Map<string, Set<string>>();
   constructor(
     state: S,
+    world: (state: S) => World,
     definitions: readonly ValueDefinition<S, string, unknown>[],
     modifiers: readonly NumericModifier[] = [],
   ) {
     this.#state = detached(state);
+    this.#world = detached(world(detached(this.#state)));
     this.#modifiers = detached(modifiers);
     this.#definitions = new Set(definitions);
     if (new Set(definitions.map((d) => d.id)).size !== definitions.length)
@@ -91,12 +108,9 @@ export class Evaluation<S> {
       throw Error("Duplicate modifier");
     for (const modifier of modifiers) {
       const definition = definitions.find((d) => d.id === modifier.valueId);
-      if (
-        !definition ||
-        !definition.numeric ||
-        modifier.target.kind !== definition.kind
-      )
+      if (!definition || !definition.numeric)
         throw Error("Modifier target/value mismatch");
+      definition.validateTarget(this.#world, modifier.target);
     }
   }
   #dependency(key: string): void {
@@ -114,19 +128,17 @@ export class Evaluation<S> {
   component<K extends string, T>(
     target: ComponentTarget<K, T>,
     ref: Ref<NoInfer<K>>,
-    world: (state: S) => World,
   ): T {
-    return this.observe(
-      `component:${target.component.id}:${refKey(ref)}`,
-      (state) => new WorldQuery(world(state)).component(target, ref),
+    return this.observe(`component:${target.component.id}:${refKey(ref)}`, () =>
+      new WorldQuery(this.#world).component(target, ref),
     );
   }
   read<K extends string, T>(
     definition: ValueDefinition<S, K, T>,
     ref: Ref<NoInfer<K>>,
   ): T {
-    const parsed = parseRef(ref);
-    if (!this.#definitions.has(definition) || parsed.kind !== definition.kind)
+    parseRef(ref);
+    if (!this.#definitions.has(definition))
       throw Error("Unregistered value or wrong target type");
     const key = `${definition.id}:${refKey(ref)}`;
     this.#dependency(key);

@@ -1,3 +1,4 @@
+import type { World } from "../objects/world.js";
 import { detached } from "../validation/json.js";
 import { finite, object, text } from "../validation/parse.js";
 import { parseRef, sameRef, type Ref } from "../objects/types.js";
@@ -76,10 +77,10 @@ export function validateModifiers(
   input: readonly unknown[],
   definitions: readonly {
     readonly id: string;
-    readonly kind: string;
+    validateTarget(world: World, ref: Ref): void;
     readonly numeric: boolean;
   }[],
-  refs: readonly Ref[],
+  world: World,
   flows: readonly string[],
 ): NumericModifier[] {
   if (new Set(definitions.map((d) => d.id)).size !== definitions.length)
@@ -89,10 +90,16 @@ export function validateModifiers(
     throw Error("Duplicate modifier");
   for (const modifier of modifiers) {
     const definition = definitions.find((d) => d.id === modifier.valueId);
-    if (!definition?.numeric || definition.kind !== modifier.target.kind)
-      throw Error("Modifier target/value mismatch");
+    if (!definition?.numeric) throw Error("Modifier target/value mismatch");
+    definition.validateTarget(world, modifier.target);
   }
-  if (activeModifiers(modifiers, refs, flows).length !== modifiers.length)
+  if (
+    activeModifiers(
+      modifiers,
+      world.entities.map((e) => e.ref),
+      flows,
+    ).length !== modifiers.length
+  )
     throw Error("Expired modifier or missing endpoint");
   return modifiers;
 }

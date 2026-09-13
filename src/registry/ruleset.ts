@@ -1,3 +1,4 @@
+import { valueOwnership } from "../values/ownership.js";
 import { createHash } from "node:crypto";
 import { detached } from "../validation/json.js";
 import { text, type Parser } from "../validation/parse.js";
@@ -38,12 +39,19 @@ export function registration<T>(
     ].includes(category)
   )
     throw Error("Unknown registration category");
+  const dependencies = [...requires];
+  if (category === "value") {
+    const owner = valueOwnership(value);
+    if (owner.id !== id || owner.version !== version)
+      throw Error("Value registration identity mismatch");
+    dependencies.push(`component:${owner.component.id}`);
+  }
   const token = Object.freeze({
     category,
     id: text(id),
     version: text(version),
     value: freezeDefinition(value),
-    requires: Object.freeze(requires.map(text)),
+    requires: Object.freeze([...new Set(dependencies.map(text))]),
   });
   issuedTokens.add(token);
   return token;
@@ -83,6 +91,19 @@ export class RulesetBuilder {
         if (!this.#entries.has(dependency))
           throw Error(
             `Missing dependency ${dependency} for ${registrationKey(entry)}`,
+          );
+      }
+    for (const entry of this.#entries.values())
+      if (entry.category === "value") {
+        const owner = valueOwnership(entry.value);
+        const component = this.#entries.get(`component:${owner.component.id}`);
+        if (
+          !component ||
+          component.value !== owner.component ||
+          component.version !== owner.component.version
+        )
+          throw Error(
+            "Value owner must be the exact registered component definition",
           );
       }
     const entries = new Map(this.#entries);
