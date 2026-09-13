@@ -57,7 +57,7 @@ export function activeModifiers(
 }
 export function combineNumeric(
   base: number,
-  modifiers: readonly NumericModifier[],
+  modifiers: readonly Pick<NumericModifier, "id" | "mode" | "amount">[],
 ): number {
   finite(base);
   const ordered = [...modifiers].sort((a, b) =>

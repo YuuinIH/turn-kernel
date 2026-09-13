@@ -133,3 +133,5 @@ JSON 快照可归档游戏状态并恢复等待步骤。若要保留在线重试
 - `view()` / snapshot 是完整调试数据，隐藏信息游戏需要另建玩家视图。当前不含房间、登录、匹配或客户端协议。
 
 详见 [v0.2 范围](docs/spec-v2.md)、[审查记录](docs/review-v2.md) 和 [编码标准](CONTRIBUTING.md)。[v0.1 范围](docs/spec.md) 保留作为历史记录。
+
+结算中间值通过独立的 `defineSettlement` 声明，随阶段固定并可保存在 Frame 中；与组件派生属性共用数值修正算法，但使用不同目标引用。见 [v0.6 结算值设计](docs/settlement-values.md)。
