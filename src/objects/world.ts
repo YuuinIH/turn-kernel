@@ -1,3 +1,4 @@
+import type { ComponentTarget } from "./components.js";
 import { detached } from "../validation/json.js";
 import { list, object, text } from "../validation/parse.js";
 import {
@@ -20,6 +21,7 @@ export interface World {
 }
 export interface WritePolicy {
   objects: readonly string[];
+  components?: readonly { kind: string; component: string }[];
   relations: readonly string[];
 }
 export function worldParser(
@@ -27,6 +29,33 @@ export function worldParser(
   relations: readonly RelationDefinition[],
 ) {
   const definitions = new Map(types.map((t) => [t.kind, t]));
+  if (definitions.size !== types.length)
+    throw Error("Duplicate object definition");
+  const components = new Map<string, { version: string; parse: unknown }>();
+  for (const type of types)
+    for (const slot of type.components) {
+      const existing = components.get(slot.id);
+      if (
+        existing &&
+        (existing.version !== slot.version || existing.parse !== slot.parse)
+      )
+        throw Error(`Conflicting component definition: ${slot.id}`);
+      components.set(slot.id, slot);
+    }
+  if (new Set(relations.map((r) => r.id)).size !== relations.length)
+    throw Error("Duplicate relation definition");
+  for (const relation of relations)
+    for (const endpoint of [relation.from, relation.to]) {
+      if (
+        typeof endpoint === "string"
+          ? !definitions.has(endpoint)
+          : !components.has(endpoint.component)
+      )
+        throw Error("Unknown relation endpoint definition");
+    }
+  const membership = (ref: Ref, component: string) =>
+    definitions.get(ref.kind)?.components.some((s) => s.id === component) ??
+    false;
   return (input: unknown): World => {
     const value = object(input, [
       "sessionId",
@@ -60,6 +89,7 @@ export function worldParser(
       entities.map((e) => e.ref),
       links,
       relations,
+      membership,
     );
     return detached({ sessionId, entities, relations: links, retiredIds });
   };
@@ -75,6 +105,15 @@ export class WorldQuery {
     const entity = this.#world.entities.find((e) => sameRef(e.ref, ref));
     if (!entity) throw Error("Missing or stale object");
     return type.parse(entity.value);
+  }
+  component<K extends string, T>(
+    target: ComponentTarget<K, T>,
+    ref: Ref<NoInfer<K>>,
+  ): T {
+    const parsed = target.parseRef(ref);
+    const entity = this.#world.entities.find((e) => sameRef(e.ref, parsed));
+    if (!entity) throw Error("Missing or stale component target");
+    return target.read(parsed, entity.value);
   }
   refs<K extends string, T>(type: ObjectType<K, T>): Ref<K>[] {
     return this.#world.entities
@@ -117,6 +156,22 @@ export class WorldEditor {
     const entity = this.#world.entities.find((e) => sameRef(e.ref, ref));
     if (!entity) throw Error("Missing object");
     entity.value = type.parse(value);
+  }
+  setComponent<K extends string, T>(
+    target: ComponentTarget<K, T>,
+    ref: Ref<NoInfer<K>>,
+    value: NoInfer<T>,
+  ): void {
+    const parsed = target.parseRef(ref);
+    if (
+      !this.#policy.components?.some(
+        (p) => p.kind === parsed.kind && p.component === target.component.id,
+      )
+    )
+      throw Error("Component write denied");
+    const entity = this.#world.entities.find((e) => sameRef(e.ref, parsed));
+    if (!entity) throw Error("Missing or stale component target");
+    entity.value = target.replace(parsed, entity.value, value);
   }
   create<K extends string, T>(
     type: ObjectType<K, T>,

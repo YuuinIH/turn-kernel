@@ -19,3 +19,6 @@ export { detached } from "./validation/json.js";
 export * as parse from "./validation/parse.js";
 export * from "./registry/behavior-content.js";
 export { z, type ZodType } from "./validation/schema.js";
+
+export * from "./objects/components.js";
+export * from "./objects/authorization.js";

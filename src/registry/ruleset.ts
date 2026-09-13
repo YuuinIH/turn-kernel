@@ -3,6 +3,7 @@ import { detached } from "../validation/json.js";
 import { text, type Parser } from "../validation/parse.js";
 const issuedTokens = new WeakSet<object>();
 export type Category =
+  | "component"
   | "object"
   | "relation"
   | "value"
@@ -26,6 +27,7 @@ export function registration<T>(
 ): Registration<T> {
   if (
     ![
+      "component",
       "object",
       "relation",
       "value",

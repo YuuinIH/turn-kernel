@@ -70,3 +70,29 @@ export function combineNumeric(
     if (m.mode === "multiply") result = finite(result * finite(m.amount));
   return result;
 }
+
+/** Checkpoints reject invalid/expired modifiers; cleanup is an explicit operation. */
+export function validateModifiers(
+  input: readonly unknown[],
+  definitions: readonly {
+    readonly id: string;
+    readonly kind: string;
+    readonly numeric: boolean;
+  }[],
+  refs: readonly Ref[],
+  flows: readonly string[],
+): NumericModifier[] {
+  if (new Set(definitions.map((d) => d.id)).size !== definitions.length)
+    throw Error("Duplicate value definition");
+  const modifiers = input.map(parseModifier);
+  if (new Set(modifiers.map((m) => m.id)).size !== modifiers.length)
+    throw Error("Duplicate modifier");
+  for (const modifier of modifiers) {
+    const definition = definitions.find((d) => d.id === modifier.valueId);
+    if (!definition?.numeric || definition.kind !== modifier.target.kind)
+      throw Error("Modifier target/value mismatch");
+  }
+  if (activeModifiers(modifiers, refs, flows).length !== modifiers.length)
+    throw Error("Expired modifier or missing endpoint");
+  return modifiers;
+}

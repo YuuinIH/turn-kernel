@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { componentField, type ComponentSlot } from "./components.js";
 import type { ZodType } from "../validation/schema.js";
 import { detached } from "../validation/json.js";
 import { object, text, type Parser } from "../validation/parse.js";
@@ -12,6 +14,7 @@ export interface Entity {
 }
 export interface ObjectType<K extends string, T> {
   readonly kind: K;
+  readonly components: readonly ComponentSlot[];
   readonly version: string;
   readonly parse: Parser<T>;
   ref(sessionId: string, id: string): Ref<K>;
@@ -25,9 +28,16 @@ export function defineObject<const K extends string, T>(
   kind: K,
   version: string,
   schema: ZodType<T> | Parser<T>,
+  components: readonly ComponentSlot[] = [],
 ): ObjectType<K, T> {
   text(kind);
   text(version);
+  const slots = Object.freeze([...components]);
+  if (
+    new Set(slots.map((s) => s.id)).size !== slots.length ||
+    new Set(slots.map((s) => s.key)).size !== slots.length
+  )
+    throw Error("Duplicate component declaration");
   // Capture parsing behavior, keeping schema instances outside frozen registries.
   const parse =
     typeof schema === "function"
@@ -36,7 +46,15 @@ export function defineObject<const K extends string, T>(
   return Object.freeze({
     kind,
     version,
-    parse: (input: unknown) => detached(parse(detached(input))),
+    components: slots,
+    parse: (input: unknown) => {
+      const source = detached(input);
+      const value = detached(parse(detached(source)));
+      if (slots.length > 0 && !isDeepStrictEqual(source, value))
+        throw Error("Component objects must preserve canonical state");
+      for (const slot of slots) slot.parse(componentField(value, slot.key));
+      return value;
+    },
     ref: (sessionId: string, id: string): Ref<K> => ({
       kind,
       sessionId: text(sessionId),

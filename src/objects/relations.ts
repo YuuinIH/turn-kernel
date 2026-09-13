@@ -1,11 +1,12 @@
 import { detached } from "../validation/json.js";
 import { text } from "../validation/parse.js";
 import { refKey, sameRef, type Ref } from "./types.js";
+export type RelationEndpoint = string | { readonly component: string };
 export interface RelationDefinition {
   readonly id: string;
   readonly version: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: RelationEndpoint;
+  readonly to: RelationEndpoint;
   readonly cardinality: "one" | "many";
   readonly required: boolean;
   readonly acyclic: boolean;
@@ -28,8 +29,15 @@ export function validateRelations(
   refs: readonly Ref[],
   relations: readonly Relation[],
   definitions: readonly RelationDefinition[],
+  hasComponent: (ref: Ref, component: string) => boolean = () => false,
 ): void {
   const byId = new Map(definitions.map((d) => [d.id, d]));
+  if (byId.size !== definitions.length)
+    throw Error("Duplicate relation definition");
+  const matches = (ref: Ref, endpoint: RelationEndpoint) =>
+    typeof endpoint === "string"
+      ? ref.kind === endpoint
+      : hasComponent(ref, endpoint.component);
   const ids = new Set<string>();
   for (const relation of relations) {
     if (ids.has(relation.id)) throw Error("Duplicate relation ID");
@@ -37,8 +45,8 @@ export function validateRelations(
     const definition = byId.get(relation.type);
     if (
       !definition ||
-      relation.from.kind !== definition.from ||
-      relation.to.kind !== definition.to ||
+      !matches(relation.from, definition.from) ||
+      !matches(relation.to, definition.to) ||
       !refs.some((ref) => sameRef(ref, relation.from)) ||
       !refs.some((ref) => sameRef(ref, relation.to))
     )
@@ -46,7 +54,7 @@ export function validateRelations(
   }
   for (const definition of definitions) {
     const edges = relations.filter((r) => r.type === definition.id);
-    for (const ref of refs.filter((r) => r.kind === definition.from)) {
+    for (const ref of refs.filter((r) => matches(r, definition.from))) {
       const count = edges.filter((r) => sameRef(r.from, ref)).length;
       if (
         (definition.required && count === 0) ||

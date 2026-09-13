@@ -1,7 +1,13 @@
+import type { ComponentTarget } from "../objects/components.js";
+import { WorldQuery, type World } from "../objects/world.js";
 import { detached } from "../validation/json.js";
 import { finite, text, type Parser } from "../validation/parse.js";
 import { parseRef, refKey, sameRef, type Ref } from "../objects/types.js";
-import { combineNumeric, type NumericModifier } from "./modifiers.js";
+import {
+  combineNumeric,
+  parseModifier,
+  type NumericModifier,
+} from "./modifiers.js";
 export interface ValueDefinition<S, K extends string, T> {
   readonly id: string;
   readonly version: string;
@@ -25,18 +31,38 @@ export function defineValue<S, const K extends string, T>(
       detached(parse(compute(query, ref))),
   });
 }
+export interface NumericValueDefinition<
+  S,
+  K extends string,
+> extends ValueDefinition<S, K, number> {
+  readonly numeric: true;
+  modifier(
+    input: Omit<NumericModifier, "target" | "valueId"> & {
+      target: Ref<NoInfer<K>>;
+    },
+  ): NumericModifier;
+}
 export function defineNumericValue<S, const K extends string>(
   id: string,
   version: string,
   kind: K,
   compute: (query: Evaluation<S>, ref: Ref<K>) => number,
   constrain: (value: number) => number = finite,
-): ValueDefinition<S, K, number> {
+): NumericValueDefinition<S, K> {
   return Object.freeze({
     id: text(id),
     version: text(version),
     kind,
     numeric: true,
+    modifier(
+      input: Omit<NumericModifier, "target" | "valueId"> & {
+        target: Ref<NoInfer<K>>;
+      },
+    ): NumericModifier {
+      if (parseRef(input.target).kind !== kind)
+        throw Error("Modifier target/value mismatch");
+      return parseModifier({ ...input, valueId: id });
+    },
     evaluate(query: Evaluation<S>, ref: Ref<K>): number {
       const base = finite(compute(query, ref));
       const modifiers = query.modifiers(id, ref);
@@ -84,6 +110,16 @@ export class Evaluation<S> {
   observe<T>(key: string, read: (state: S) => T): T {
     this.#dependency(`state:${key}`);
     return detached(read(detached(this.#state)));
+  }
+  component<K extends string, T>(
+    target: ComponentTarget<K, T>,
+    ref: Ref<NoInfer<K>>,
+    world: (state: S) => World,
+  ): T {
+    return this.observe(
+      `component:${target.component.id}:${refKey(ref)}`,
+      (state) => new WorldQuery(world(state)).component(target, ref),
+    );
   }
   read<K extends string, T>(
     definition: ValueDefinition<S, K, T>,
