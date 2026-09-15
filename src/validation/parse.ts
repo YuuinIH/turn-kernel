@@ -1,38 +1,39 @@
-import { record } from "./json.js";
+import { isDeepStrictEqual } from "node:util";
+import { detached } from "./json.js";
+import { z } from "./schema.js";
+import { finiteSchema, textSchema } from "./primitives.js";
 export type Parser<T> = (value: unknown) => T;
+/** Legacy field-list helper. Prefer a module's named strict schema for new protocols. */
 export function object(
   value: unknown,
   keys: readonly string[],
 ): Record<string, unknown> {
-  if (!record(value) || Object.keys(value).some((key) => !keys.includes(key)))
-    throw Error("Invalid object fields");
-  return value;
+  const source = detached(value);
+  const parsed = z
+    .strictObject(
+      Object.fromEntries(keys.map((key) => [key, z.unknown().optional()])),
+    )
+    .parse(source);
+  if (!isDeepStrictEqual(source, parsed))
+    throw Error("Object parser changed input");
+  return parsed;
 }
 export function text(value: unknown): string {
-  if (typeof value !== "string" || !value.trim())
-    throw Error("Expected nonempty string");
-  return value;
+  return textSchema.parse(value);
 }
 export function integer(
   value: unknown,
   min = 0,
   max = Number.MAX_SAFE_INTEGER,
 ): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < min ||
-    value > max
-  )
-    throw Error("Invalid integer");
-  return value;
+  return z.number().int().min(min).max(max).parse(value);
 }
 export function finite(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value))
-    throw Error("Expected finite number");
-  return value;
+  return finiteSchema.parse(value);
 }
 export function list<T>(value: unknown, parse: Parser<T>): T[] {
-  if (!Array.isArray(value)) throw Error("Expected array");
-  return value.map((item: unknown) => parse(item));
+  return z
+    .array(z.unknown())
+    .parse(detached(value))
+    .map((item) => parse(item));
 }

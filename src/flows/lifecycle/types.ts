@@ -1,6 +1,8 @@
-import type { ZodType } from "../../validation/schema.js";
-import type { OperationRequest } from "../../operations/types.js";
-import type { StartFlow } from "../types.js";
+import type { z, ZodType } from "../../validation/schema.js";
+import type {
+  flowReactionSchema,
+  lifecycleCheckpointSchema,
+} from "../schemas.js";
 
 export interface FlowIdentity {
   readonly id: string;
@@ -21,9 +23,7 @@ export interface BeforeHandler<
   readonly order: number;
   run(state: S, input: Readonly<I>, occurrence: HookOccurrence): D;
 }
-export type FlowReaction =
-  | { kind: "operation"; request: OperationRequest }
-  | { kind: "flow"; start: StartFlow };
+export type FlowReaction = z.infer<typeof flowReactionSchema>;
 export interface AfterHandler<S, I, R> extends FlowIdentity {
   readonly order: number;
   readonly operations: readonly FlowIdentity[];
@@ -97,14 +97,4 @@ export interface FlowLifecycle<S> {
     operations: readonly FlowIdentity[],
   ): void;
 }
-export type LifecycleCheckpoint =
-  | { phase: "before" }
-  | { phase: "body"; input: unknown }
-  | {
-      phase: "after";
-      input: unknown;
-      result: unknown;
-      handler: number;
-      pending: FlowReaction[];
-      awaitingChild: boolean;
-    };
+export type LifecycleCheckpoint = z.infer<typeof lifecycleCheckpointSchema>;

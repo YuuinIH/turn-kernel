@@ -1,17 +1,14 @@
+import { refSchema, entitySchema } from "./schemas.js";
 import { isDeepStrictEqual } from "node:util";
 import { componentField, type ComponentSlot } from "./components.js";
-import type { ZodType } from "../validation/schema.js";
+import type { z, ZodType } from "../validation/schema.js";
 import { detached } from "../validation/json.js";
-import { object, text, type Parser } from "../validation/parse.js";
-export interface Ref<K extends string = string> {
-  kind: K;
-  sessionId: string;
-  id: string;
-}
-export interface Entity {
-  ref: Ref;
-  value: unknown;
-}
+import { text, type Parser } from "../validation/parse.js";
+export type Ref<K extends string = string> = Omit<
+  z.infer<typeof refSchema>,
+  "kind"
+> & { kind: K };
+export type Entity = z.infer<typeof entitySchema>;
 export interface ObjectType<K extends string, T> {
   readonly kind: K;
   readonly components: readonly ComponentSlot[];
@@ -21,8 +18,7 @@ export interface ObjectType<K extends string, T> {
   parseRef(input: unknown): Ref<K>;
 }
 export function parseRef(input: unknown): Ref {
-  const v = object(input, ["kind", "sessionId", "id"]);
-  return { kind: text(v.kind), sessionId: text(v.sessionId), id: text(v.id) };
+  return refSchema.parse(detached(input));
 }
 export function defineObject<const K extends string, T>(
   kind: K,

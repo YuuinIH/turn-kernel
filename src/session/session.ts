@@ -1,5 +1,6 @@
+import { snapshotSchema, submissionSchema } from "./schemas.js";
 import type { GameDefinition, Session, Submission } from "./types.js";
-import { detached, record } from "../validation/json.js";
+import { detached } from "../validation/json.js";
 
 function stateFrom<S, C, F>(game: GameDefinition<S, C, F>, value: unknown): S {
   return detached(game.parseState(detached(value)));
@@ -19,23 +20,9 @@ export function restoreSession<S, C, F>(
   game: GameDefinition<S, C, F>,
   input: unknown,
 ): Session<S, C, F> {
-  const saved = detached(input);
-  if (
-    !record(saved) ||
-    saved.format !== 1 ||
-    saved.ruleset !== game.ruleset ||
-    typeof saved.sessionId !== "string" ||
-    !saved.sessionId.trim() ||
-    typeof saved.revision !== "number" ||
-    !Number.isSafeInteger(saved.revision) ||
-    saved.revision < 0 ||
-    Object.keys(saved).some(
-      (key) =>
-        !["format", "ruleset", "sessionId", "revision", "state"].includes(key),
-    )
-  ) {
+  const saved = snapshotSchema.parse(detached(input));
+  if (saved.ruleset !== game.ruleset)
     throw Error("Invalid snapshot envelope or ruleset");
-  }
   return host(
     game,
     saved.sessionId,
@@ -66,23 +53,7 @@ function host<S, C, F>(
   function execute(input: unknown): Submission<F> {
     let command: C;
     try {
-      const request = detached(input);
-      if (
-        !record(request) ||
-        typeof request.sessionId !== "string" ||
-        typeof request.revision !== "number" ||
-        !Number.isSafeInteger(request.revision) ||
-        request.revision < 0 ||
-        Object.keys(request).some(
-          (key) => !["sessionId", "revision", "command"].includes(key),
-        )
-      ) {
-        return {
-          ok: false,
-          code: "invalid-input",
-          reason: "Invalid request envelope",
-        };
-      }
+      const request = submissionSchema.parse(detached(input));
       if (request.sessionId !== sessionId)
         return { ok: false, code: "wrong-session", reason: "Session mismatch" };
       if (request.revision !== revision)

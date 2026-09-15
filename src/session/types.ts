@@ -1,3 +1,5 @@
+import type { z } from "../validation/schema.js";
+import type { snapshotSchema } from "./schemas.js";
 /** Trusted game modules define semantics; this host owns the committed state. */
 export type Decision<S, F> =
   | { ok: true; state: S; facts: readonly F[] }
@@ -10,13 +12,9 @@ export interface GameDefinition<S, C, F> {
   readonly decide: (state: S, command: C) => Decision<S, F>;
 }
 
-export interface Snapshot<S> {
-  format: 1;
-  ruleset: string;
-  sessionId: string;
-  revision: number;
+export type Snapshot<S> = Omit<z.infer<typeof snapshotSchema>, "state"> & {
   state: S;
-}
+};
 
 export type Submission<F> =
   | { ok: true; revision: number; facts: readonly F[] }

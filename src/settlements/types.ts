@@ -1,29 +1,20 @@
-import type { Ref } from "../objects/types.js";
-export interface SettlementValueRef<N extends string = string> {
-  kind: "settlement-value";
-  sessionId: string;
-  instanceId: string;
-  definition: string;
-  name: N;
-}
-export interface SettlementModifier<N extends string = string> {
-  id: string;
-  target: SettlementValueRef<N>;
-  source: Ref;
-  mode: "add" | "multiply";
-  amount: number;
-}
-export interface Settlement<I> {
-  definition: string;
-  version: string;
-  sessionId: string;
-  id: string;
-  stage: number;
-  status: "open" | "ready" | "completed" | "cancelled";
+import type { z } from "../validation/schema.js";
+import type {
+  settlementValueRefSchema,
+  settlementModifierSchema,
+  settlementSchema,
+} from "./schemas.js";
+export type SettlementValueRef<N extends string = string> = Omit<
+  z.infer<typeof settlementValueRefSchema>,
+  "name"
+> & { name: N };
+export type SettlementModifier<N extends string = string> = Omit<
+  z.infer<typeof settlementModifierSchema>,
+  "target"
+> & { target: SettlementValueRef<N> };
+export type Settlement<I> = Omit<z.infer<typeof settlementSchema>, "input"> & {
   input: I;
-  values: Record<string, { base: number; result: number | null }>;
-  modifiers: SettlementModifier[];
-}
+};
 export interface SettlementValueRule {
   stage: string;
   constrain?: (value: number) => number;

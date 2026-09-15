@@ -1,3 +1,4 @@
+import { z } from "../validation/schema.js";
 import type { OperationRequest } from "../operations/types.js";
 import type { Parser } from "../validation/parse.js";
 import {
@@ -25,22 +26,17 @@ export function bindBehavior<S, I>(
   )
     throw Error("Behavior registration mismatch");
   const input = behavior.value.parseInput(parameters);
+  const bindingSchema = z.strictObject({
+    behavior: z.literal(behavior.id),
+    version: z.literal(behavior.version),
+    parameters: z
+      .unknown()
+      .transform((value) => behavior.value.parseInput(value)),
+  });
   const definition = content(
     id,
     { behavior: behavior.id, version: behavior.version, parameters: input },
-    (value) => {
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        !("parameters" in value)
-      )
-        throw Error("Invalid binding");
-      return {
-        behavior: behavior.id,
-        version: behavior.version,
-        parameters: behavior.value.parseInput(value.parameters),
-      };
-    },
+    (value) => bindingSchema.parse(value),
     [registrationKey(behavior)],
   );
   return Object.freeze({

@@ -1,9 +1,7 @@
+import type { z } from "../validation/schema.js";
+import type { operationRequestSchema } from "./schemas.js";
 import type { Parser } from "../validation/parse.js";
-export interface OperationRequest {
-  operation: string;
-  version: string;
-  input: unknown;
-}
+export type OperationRequest = z.infer<typeof operationRequestSchema>;
 export interface OperationOutcome<S, F> {
   state: S;
   facts: readonly F[];

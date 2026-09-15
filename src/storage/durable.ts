@@ -1,12 +1,7 @@
 import { createHash } from "node:crypto";
 import { detached, record } from "../validation/json.js";
-import {
-  integer,
-  list,
-  object,
-  text,
-  type Parser,
-} from "../validation/parse.js";
+import { type Parser } from "../validation/parse.js";
+import { durableSubmissionSchema, successfulReceiptSchema } from "./schemas.js";
 import { restoreSession } from "../session/session.js";
 import type { GameDefinition, Snapshot, Submission } from "../session/types.js";
 import type { Receipt, SessionStore } from "./types.js";
@@ -45,30 +40,25 @@ export async function openDurableSession<S, C, F>(
         code: "request-conflict",
         reason: "Request ID reused with different payload",
       };
-    const result = object(receipt.result, ["ok", "revision", "facts"]);
-    if (result.ok !== true) throw Error("Invalid stored receipt");
+    const result = successfulReceiptSchema.parse(detached(receipt.result));
     return {
       ok: true,
-      revision: integer(result.revision),
-      facts: list(result.facts, parseFact),
+      revision: result.revision,
+      facts: result.facts.map((fact) => detached(parseFact(fact))),
     };
   }
+
   async function submit(input: unknown): Promise<DurableResult<F>> {
     let revision: number;
     let requestId: string;
     let command: C;
     let fingerprint: string;
     try {
-      const request = object(detached(input), [
-        "sessionId",
-        "revision",
-        "requestId",
-        "command",
-      ]);
+      const request = durableSubmissionSchema.parse(detached(input));
       if (request.sessionId !== sessionId)
         return { ok: false, code: "wrong-session", reason: "Session mismatch" };
-      revision = integer(request.revision);
-      requestId = text(request.requestId);
+      revision = request.revision;
+      requestId = request.requestId;
       command = detached(game.parseCommand(detached(request.command)));
       // Fingerprint the original payload: changing a field is not the same request.
       fingerprint = createHash("sha256")

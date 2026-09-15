@@ -1,32 +1,21 @@
+import type { z } from "../validation/schema.js";
+import type {
+  receiptSchema,
+  leaseSchema,
+  commitSchema,
+  commitResultSchema,
+} from "./schemas.js";
 import type { Snapshot } from "../session/types.js";
-export interface Receipt {
-  requestId: string;
-  fingerprint: string;
-  result: unknown;
-}
+export type Receipt = z.infer<typeof receiptSchema>;
 export interface StoredSession {
   snapshot: Snapshot<unknown>;
   fence: number;
   owner: string;
   leaseUntil: number;
 }
-export interface Lease {
-  owner: string;
-  fence: number;
-}
-export interface Commit {
-  sessionId: string;
-  lease: Lease;
-  expectedRevision: number;
-  next: Snapshot<unknown>;
-  receipt: Receipt;
-}
-export type CommitResult =
-  | "committed"
-  | "duplicate"
-  | "request-conflict"
-  | "stale"
-  | "not-owner";
+export type Lease = z.infer<typeof leaseSchema>;
+export type Commit = z.infer<typeof commitSchema>;
+export type CommitResult = z.infer<typeof commitResultSchema>;
 export interface SessionStore {
   create(snapshot: Snapshot<unknown>): Promise<void>;
   claim(sessionId: string, owner: string, leaseMs: number): Promise<Lease>;

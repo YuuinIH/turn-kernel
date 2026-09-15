@@ -1,24 +1,14 @@
+import type { z } from "../validation/schema.js";
 import type { ComponentTarget } from "./components.js";
 import { detached } from "../validation/json.js";
-import { list, object, text } from "../validation/parse.js";
-import {
-  parseRef,
-  sameRef,
-  type Entity,
-  type ObjectType,
-  type Ref,
-} from "./types.js";
+import { worldSchema } from "./schemas.js";
+import { sameRef, type ObjectType, type Ref } from "./types.js";
 import {
   validateRelations,
   type Relation,
   type RelationDefinition,
 } from "./relations.js";
-export interface World {
-  sessionId: string;
-  entities: Entity[];
-  relations: Relation[];
-  retiredIds: string[];
-}
+export type World = z.infer<typeof worldSchema>;
 export interface WritePolicy {
   objects: readonly string[];
   components?: readonly { kind: string; component: string }[];
@@ -57,31 +47,15 @@ export function worldParser(
     definitions.get(ref.kind)?.components.some((s) => s.id === component) ??
     false;
   return (input: unknown): World => {
-    const value = object(input, [
-      "sessionId",
-      "entities",
-      "relations",
-      "retiredIds",
-    ]);
-    const sessionId = text(value.sessionId);
-    const entities = list(value.entities, (input) => {
-      const e = object(input, ["ref", "value"]);
-      const ref = parseRef(e.ref);
+    const value = worldSchema.parse(detached(input));
+    const { sessionId, relations: links, retiredIds } = value;
+    const entities = value.entities.map((e) => {
+      const ref = e.ref;
       const type = definitions.get(ref.kind);
       if (!type || ref.sessionId !== sessionId)
         throw Error("Unknown or foreign object");
       return { ref, value: type.parse(e.value) };
     });
-    const links = list(value.relations, (input) => {
-      const r = object(input, ["id", "type", "from", "to"]);
-      return {
-        id: text(r.id),
-        type: text(r.type),
-        from: parseRef(r.from),
-        to: parseRef(r.to),
-      };
-    });
-    const retiredIds = list(value.retiredIds, text);
     const ids = [...entities.map((e) => e.ref.id), ...retiredIds];
     if (new Set(ids).size !== ids.length)
       throw Error("Duplicate or reused object ID");

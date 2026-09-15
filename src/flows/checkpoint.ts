@@ -1,7 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
 import { detached } from "../validation/json.js";
-import { integer, list, object, text } from "../validation/parse.js";
+import { integer, text } from "../validation/parse.js";
 import type { FlowDefinition, FlowState, Frame, StartFlow } from "./types.js";
+import {
+  flowIdentitySchema,
+  flowStateSchema,
+  lifecycleCheckpointSchema,
+  startFlowSchema,
+} from "./schemas.js";
 import type { LifecycleCheckpoint } from "./lifecycle/types.js";
 
 export function identity(
@@ -17,15 +23,13 @@ function validateIdentity(
   kind: string,
   sequence: number,
 ): void {
-  const parts: unknown = JSON.parse(id);
+  const parsed = flowIdentitySchema.safeParse(JSON.parse(id));
+  if (!parsed.success)
+    throw Error("Invalid flow identity namespace or counter");
+  const parts = parsed.data;
   if (
-    !Array.isArray(parts) ||
-    parts.length !== 3 ||
     parts[0] !== instanceId ||
     parts[1] !== kind ||
-    typeof parts[2] !== "number" ||
-    !Number.isSafeInteger(parts[2]) ||
-    parts[2] < 0 ||
     parts[2] >= sequence ||
     id !== identity(instanceId, kind, parts[2])
   )
@@ -60,7 +64,8 @@ export class FlowCheckpointCodec<S> {
       throw Error("Step without a data parser requires null data");
     return null;
   }
-  frame(start: StartFlow, instanceId: string, sequence: number): Frame {
+  frame(input: StartFlow, instanceId: string, sequence: number): Frame {
+    const start = startFlowSchema.parse(detached(input));
     const frame: Frame = {
       id: identity(instanceId, "frame", sequence),
       type: text(start.type),
@@ -90,16 +95,8 @@ export class FlowCheckpointCodec<S> {
       if (input !== null) throw Error("Flow does not declare lifecycle");
       return null;
     }
-    const v = object(input, [
-      "phase",
-      "input",
-      "result",
-      "handler",
-      "pending",
-      "awaitingChild",
-    ]);
+    const v = lifecycleCheckpointSchema.parse(input);
     if (v.phase === "before") {
-      object(v, ["phase"]);
       if (
         frame.step !== d.entry ||
         frame.childResult !== null ||
@@ -110,19 +107,13 @@ export class FlowCheckpointCodec<S> {
       return { phase: "before" };
     }
     if (v.phase === "body") {
-      object(v, ["phase", "input"]);
       return { phase: "body", input: d.parseInput(v.input) };
     }
-    if (v.phase !== "after") throw Error("Unknown lifecycle phase");
     const handler = integer(v.handler, 0, d.afterCount);
-    if (typeof v.awaitingChild !== "boolean")
-      throw Error("Invalid lifecycle child flag");
+    if (handler === 0 && v.pending.length)
+      throw Error("Unexpected pending lifecycle reaction");
     const pending =
-      handler === 0
-        ? list(v.pending, () => {
-            throw Error("Unexpected pending lifecycle reaction");
-          })
-        : d.parseReactions(handler - 1, v.pending);
+      handler === 0 ? [] : d.parseReactions(handler - 1, v.pending);
     if (v.awaitingChild && handler === 0)
       throw Error("Lifecycle child has no handler");
     return {
@@ -135,42 +126,10 @@ export class FlowCheckpointCodec<S> {
     };
   }
   parse(input: unknown): FlowState {
-    const v = object(detached(input), [
-      "format",
-      "instanceId",
-      "sequence",
-      "stack",
-      "status",
-      "prompt",
-      "result",
-      "error",
-      "cancellation",
-    ]);
-    if (v.format !== 2) throw Error("Unsupported flow checkpoint format");
-    const sequence = integer(v.sequence, 1),
-      instanceId = text(v.instanceId);
-    const stack = list(v.stack, (input) => {
-      const f = object(input, [
-        "id",
-        "type",
-        "version",
-        "step",
-        "data",
-        "childResult",
-        "childCancelled",
-        "lifecycle",
-      ]);
-      const frame: Frame = {
-        id: text(f.id),
-        type: text(f.type),
-        version: text(f.version),
-        step: text(f.step),
-        data: f.data,
-        childResult: detached(f.childResult),
-        childCancelled:
-          f.childCancelled === null ? null : text(f.childCancelled),
-        lifecycle: null,
-      };
+    const v = flowStateSchema.parse(detached(input));
+    const { sequence, instanceId, status, prompt, cancellation } = v;
+    const stack = v.stack.map((f) => {
+      const frame: Frame = { ...f, lifecycle: null };
       if (frame.childCancelled !== null && frame.childResult !== null)
         throw Error("Cancelled child has a result");
       frame.lifecycle = this.#lifecycle(frame, f.lifecycle);
@@ -208,25 +167,7 @@ export class FlowCheckpointCodec<S> {
     }
     if (new Set(stack.map((f) => f.id)).size !== stack.length)
       throw Error("Duplicate flow frame");
-    const status = v.status;
-    if (
-      status !== "running" &&
-      status !== "waiting" &&
-      status !== "finished" &&
-      status !== "cancelled" &&
-      status !== "fault"
-    )
-      throw Error("Unknown flow status");
-    let prompt = null;
-    if (v.prompt !== null) {
-      const p = object(v.prompt, ["id", "actor", "frameId"]);
-      prompt = {
-        id: text(p.id),
-        actor: text(p.actor),
-        frameId: text(p.frameId),
-      };
-      validateIdentity(prompt.id, instanceId, "choice", sequence);
-    }
+    if (prompt) validateIdentity(prompt.id, instanceId, "choice", sequence);
     const terminal = status === "finished" || status === "cancelled";
     if (
       (status === "waiting") !== (prompt !== null) ||
@@ -242,9 +183,8 @@ export class FlowCheckpointCodec<S> {
         (top.lifecycle !== null && top.lifecycle.phase !== "body"))
     )
       throw Error("Waiting step cannot receive input");
-    if (status === "fault" ? typeof v.error !== "string" : v.error !== null)
+    if (status === "fault" ? v.error === null : v.error !== null)
       throw Error("Invalid fault record");
-    const cancellation = v.cancellation === null ? null : text(v.cancellation);
     if (
       (status === "cancelled") !== (cancellation !== null) ||
       (status !== "finished" && v.result !== null)

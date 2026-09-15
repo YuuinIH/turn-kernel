@@ -1,6 +1,7 @@
-import { detached } from "../validation/json.js";
-import { text } from "../validation/parse.js";
+import type { z } from "../validation/schema.js";
+import type { relationSchema } from "./schemas.js";
 import { refKey, sameRef, type Ref } from "./types.js";
+// TS-authored rule definitions are trusted; only stored relation data needs a schema.
 export type RelationEndpoint = string | { readonly component: string };
 export interface RelationDefinition {
   readonly id: string;
@@ -12,18 +13,11 @@ export interface RelationDefinition {
   readonly acyclic: boolean;
   readonly onTargetDelete: "restrict" | "detach" | "cascade";
 }
-export interface Relation {
-  id: string;
-  type: string;
-  from: Ref;
-  to: Ref;
-}
+export type Relation = z.infer<typeof relationSchema>;
 export function defineRelation(
   definition: RelationDefinition,
 ): RelationDefinition {
-  text(definition.id);
-  text(definition.version);
-  return Object.freeze(detached(definition));
+  return Object.freeze(structuredClone(definition));
 }
 export function validateRelations(
   refs: readonly Ref[],

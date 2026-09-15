@@ -1,45 +1,13 @@
+import type { z } from "../validation/schema.js";
+import { numericModifierSchema, lifetimeSchema } from "./schemas.js";
 import type { World } from "../objects/world.js";
 import { detached } from "../validation/json.js";
-import { finite, object, text } from "../validation/parse.js";
-import { parseRef, sameRef, type Ref } from "../objects/types.js";
-export type Lifetime = { kind: "source" } | { kind: "flow"; flowId: string };
-export interface NumericModifier {
-  id: string;
-  target: Ref;
-  valueId: string;
-  mode: "add" | "multiply";
-  amount: number;
-  source: Ref;
-  lifetime: Lifetime;
-}
+import { finite } from "../validation/parse.js";
+import { sameRef, type Ref } from "../objects/types.js";
+export type Lifetime = z.infer<typeof lifetimeSchema>;
+export type NumericModifier = z.infer<typeof numericModifierSchema>;
 export function parseModifier(input: unknown): NumericModifier {
-  const v = object(input, [
-    "id",
-    "target",
-    "valueId",
-    "mode",
-    "amount",
-    "source",
-    "lifetime",
-  ]);
-  const life = object(v.lifetime, ["kind", "flowId"]);
-  let lifetime: Lifetime;
-  if (life.kind === "source" && life.flowId === undefined)
-    lifetime = { kind: "source" };
-  else if (life.kind === "flow")
-    lifetime = { kind: "flow", flowId: text(life.flowId) };
-  else throw Error("Invalid lifetime");
-  if (v.mode !== "add" && v.mode !== "multiply")
-    throw Error("Unsupported numeric modifier");
-  return {
-    id: text(v.id),
-    target: parseRef(v.target),
-    valueId: text(v.valueId),
-    mode: v.mode,
-    amount: finite(v.amount),
-    source: parseRef(v.source),
-    lifetime,
-  };
+  return numericModifierSchema.parse(detached(input));
 }
 export function activeModifiers(
   modifiers: readonly NumericModifier[],

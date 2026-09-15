@@ -1,8 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ZodType } from "../validation/schema.js";
 import { detached } from "../validation/json.js";
-import { finite, integer, list, object, text } from "../validation/parse.js";
+import { finite, integer, text } from "../validation/parse.js";
 import { combineNumeric } from "../values/modifiers.js";
+import { settlementSchema } from "./schemas.js";
 import { parseSettlementModifier } from "./modifiers.js";
 import type {
   Settlement,
@@ -59,26 +60,12 @@ export function defineSettlement<I, const N extends string>(options: {
     );
   }
   function parse(input: unknown): Settlement<I> {
-    const v = object(detached(input), [
-      "definition",
-      "version",
-      "sessionId",
-      "id",
-      "stage",
-      "status",
-      "input",
-      "values",
-      "modifiers",
-    ]);
+    const original = detached(input);
+    const v = settlementSchema.parse(original);
+    if (!isDeepStrictEqual(original, v))
+      throw Error("Settlement checkpoint must be canonical");
     if (v.definition !== id || v.version !== version)
       throw Error("Settlement definition/version mismatch");
-    if (
-      v.status !== "open" &&
-      v.status !== "ready" &&
-      v.status !== "completed" &&
-      v.status !== "cancelled"
-    )
-      throw Error("Invalid settlement status");
     const stage = integer(v.stage, 0, stages.length);
     if (
       (v.status === "open" && stage === stages.length) ||
@@ -86,21 +73,8 @@ export function defineSettlement<I, const N extends string>(options: {
         stage !== stages.length)
     )
       throw Error("Settlement stage/status mismatch");
-    const values: Settlement<I>["values"] = {};
-    for (const [name, raw] of Object.entries(
-      object(v.values, [...rules.keys()]),
-    )) {
-      const item = object(raw, ["base", "result"]);
-      Object.defineProperty(values, name, {
-        value: {
-          base: finite(item.base),
-          result: item.result === null ? null : finite(item.result),
-        },
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
+    const values = v.values;
+    for (const name of Object.keys(values)) ruleFor(name);
     const s: Settlement<I> = {
       definition: id,
       version,
@@ -110,7 +84,7 @@ export function defineSettlement<I, const N extends string>(options: {
       status: v.status,
       input: parseInput(v.input),
       values,
-      modifiers: list(v.modifiers, parseSettlementModifier),
+      modifiers: v.modifiers,
     };
     if (new Set(s.modifiers.map((m) => m.id)).size !== s.modifiers.length)
       throw Error("Duplicate settlement modifier");

@@ -1,4 +1,6 @@
-import { integer, list, text } from "../validation/parse.js";
+import { detached } from "../validation/json.js";
+import { redisLoadSchema, commitResultSchema } from "./schemas.js";
+import { integer, text } from "../validation/parse.js";
 import type { Snapshot } from "../session/types.js";
 import type {
   Commit,
@@ -47,13 +49,9 @@ export class RedisStore implements SessionStore {
     return { owner, fence };
   }
   async load(id: string): Promise<StoredSession> {
-    const result = list(await this.#run(id, "load"), (value) => {
-      if (typeof value !== "string") throw Error("Redis protocol");
-      return value;
-    });
-    const [snapshot, fence, owner, expiry] = result;
-    if (snapshot === undefined || owner === undefined || result.length !== 4)
-      throw Error("Redis protocol");
+    const [snapshot, fence, owner, expiry] = redisLoadSchema.parse(
+      detached(await this.#run(id, "load")),
+    );
     const parsed = parseSnapshot(JSON.parse(snapshot));
     if (parsed.sessionId !== id) throw Error("Storage session mismatch");
     return {
@@ -83,14 +81,6 @@ export class RedisStore implements SessionStore {
       c.next.ruleset,
       String(c.next.revision),
     );
-    if (
-      result !== "committed" &&
-      result !== "duplicate" &&
-      result !== "request-conflict" &&
-      result !== "stale" &&
-      result !== "not-owner"
-    )
-      throw Error("Redis protocol");
-    return result;
+    return commitResultSchema.parse(result);
   }
 }
