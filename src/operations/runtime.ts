@@ -64,6 +64,12 @@ export class OperationRuntime<S, F> {
     this.#before = ordered(before);
     this.#reactions = ordered(reactions);
   }
+  identities(): readonly { id: string; version: string }[] {
+    return [...this.#operations.values()].map(({ id, version }) => ({
+      id,
+      version,
+    }));
+  }
   execute(
     initial: S,
     requests: readonly OperationRequest[],

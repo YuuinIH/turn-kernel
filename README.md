@@ -135,3 +135,9 @@ JSON 快照可归档游戏状态并恢复等待步骤。若要保留在线重试
 详见 [v0.2 范围](docs/spec-v2.md)、[审查记录](docs/review-v2.md) 和 [编码标准](CONTRIBUTING.md)。[v0.1 范围](docs/spec.md) 保留作为历史记录。
 
 结算中间值通过独立的 `defineSettlement` 声明，随阶段固定并可保存在 Frame 中；与组件派生属性共用数值修正算法，但使用不同目标引用。见 [v0.6 结算值设计](docs/settlement-values.md)。
+
+## v0.7: Object-declared flow lifecycle
+
+`defineFlow` adds schema-validated input/result and optional object-style `hooks.before` / `hooks.after`. The executor owns invocation, deterministic handler order, cancellation, controlled reaction operations and resumable reaction child flows. Internal steps have no automatic public hooks. Cancellation and input replacement require explicit capabilities; completed results cannot be rewritten. See [the lifecycle contract and example](docs/flow-lifecycle.md).
+
+An after reaction finishes before its caller continues, including across a player-choice checkpoint and worker takeover. Checkpoint format is now 2; no compatibility layer is provided. This release supplies the flow boundary, not a dynamic effect-instance/aura framework. Existing synchronous Operation APIs remain available without forcing a Flow wrapper.

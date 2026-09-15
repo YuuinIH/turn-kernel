@@ -1,3 +1,4 @@
+import type { FlowLifecycle, LifecycleCheckpoint } from "./lifecycle/types.js";
 import type { OperationRequest } from "../operations/types.js";
 /** One execution frame owns its serializable local data. */
 export interface Frame<T = unknown> {
@@ -7,6 +8,8 @@ export interface Frame<T = unknown> {
   step: string;
   data: T;
   childResult: unknown;
+  childCancelled: string | null;
+  lifecycle: LifecycleCheckpoint | null;
 }
 export interface Prompt {
   id: string;
@@ -14,14 +17,15 @@ export interface Prompt {
   frameId: string;
 }
 export interface FlowState {
-  format: 1;
+  format: 2;
   instanceId: string;
   sequence: number;
   stack: Frame[];
-  status: "running" | "waiting" | "finished" | "fault";
+  status: "running" | "waiting" | "finished" | "cancelled" | "fault";
   prompt: Prompt | null;
   result: unknown;
   error: string | null;
+  cancellation: string | null;
 }
 export interface Choice {
   promptId: string;
@@ -59,6 +63,7 @@ export interface FlowStep<S> {
 export interface FlowDefinition<S> {
   readonly id: string;
   readonly version: string;
+  readonly lifecycle?: FlowLifecycle<S>;
   readonly steps: Readonly<Record<string, FlowStep<S>>>;
 }
 export interface Execution<S> {
